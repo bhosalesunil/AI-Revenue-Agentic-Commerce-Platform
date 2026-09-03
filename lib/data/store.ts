@@ -574,11 +574,39 @@ class DataStore {
     this.fallbackAgentEvents.unshift(newEvent);
 
     try {
+      let validUserId: string | null = null;
+      if (newEvent.userId) {
+        const u = await prisma.user.findUnique({ where: { id: newEvent.userId } });
+        if (u) validUserId = u.id;
+      }
+
+      let validConversationId: string | null = null;
+      if (newEvent.conversationId) {
+        const conv = await prisma.conversation.findUnique({
+          where: { id: newEvent.conversationId },
+        });
+        if (conv) {
+          validConversationId = conv.id;
+        } else {
+          try {
+            const createdConv = await prisma.conversation.create({
+              data: {
+                id: newEvent.conversationId,
+                userId: validUserId,
+              },
+            });
+            validConversationId = createdConv.id;
+          } catch {
+            validConversationId = null;
+          }
+        }
+      }
+
       await prisma.agentEvent.create({
         data: {
           id: newEvent.id,
-          conversationId: newEvent.conversationId,
-          userId: newEvent.userId,
+          conversationId: validConversationId,
+          userId: validUserId,
           eventType: newEvent.eventType as AgentEventType,
           toolName: newEvent.toolName,
           input: newEvent.input,
@@ -586,7 +614,7 @@ class DataStore {
           status: newEvent.status,
           amount: newEvent.amount,
           justification: newEvent.justification,
-        }
+        },
       });
     } catch {}
 
