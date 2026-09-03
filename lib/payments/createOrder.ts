@@ -1,6 +1,7 @@
 import { store } from "../data/store";
-import { createRazorpayOrder } from "../razorpay";
+import { createRazorpayOrder, generateTestSignature } from "../razorpay";
 import { MoneySecurityGuard } from "../ai/security";
+import { AgentEventType } from "@prisma/client";
 
 export async function processCreatePaymentOrder(params: {
   cartId: string;
@@ -25,22 +26,30 @@ export async function processCreatePaymentOrder(params: {
     },
   });
 
+  const hasUpsellItem = cart.items.some(i => i.isUpsell);
+
   // 3. Persist Order in database with PENDING status
-  const order = store.createOrder({
+  const order = await store.createOrder({
     userId,
-    items: cart.items.map(i => ({ productId: i.productId, quantity: i.quantity, price: i.price })),
+    items: cart.items.map(i => ({
+      productId: i.productId,
+      quantity: i.quantity,
+      price: i.price,
+      isUpsell: i.isUpsell,
+    })),
     totalAmount: verifiedTotal,
     razorpayOrderId: razorpayOrder.id,
     isAiAssisted: true,
+    isAiUpsold: hasUpsellItem,
     customerName,
     customerEmail,
   });
 
-  // 4. Log creation event
-  store.logAgentEvent({
+  // 4. Log creation event in PostgreSQL
+  await store.logAgentEvent({
     conversationId: "sys_pay",
     userId,
-    eventType: "CREATE_CHECKOUT" as any,
+    eventType: "CREATE_CHECKOUT" as AgentEventType,
     toolName: "createCheckout",
     input: JSON.stringify({ cartId, customerName, customerEmail }),
     output: JSON.stringify({ orderId: order.id, razorpayOrderId: razorpayOrder.id, amount: verifiedTotal }),
@@ -49,6 +58,13 @@ export async function processCreatePaymentOrder(params: {
     justification: `Order ${order.id} registered for checkout. Amount: ₹${verifiedTotal}`,
   });
 
+  let testSignature: string | undefined = undefined;
+  let testPaymentId: string | undefined = undefined;
+  if (razorpayOrder.isSimulated) {
+    testPaymentId = `pay_test_${order.id.replace(/-/g, "").toLowerCase()}`;
+    testSignature = generateTestSignature(razorpayOrder.id, testPaymentId);
+  }
+
   return {
     orderId: order.id,
     razorpayOrderId: razorpayOrder.id,
@@ -56,5 +72,7 @@ export async function processCreatePaymentOrder(params: {
     amountINR: verifiedTotal,
     currency: "INR",
     isSimulated: razorpayOrder.isSimulated,
+    testPaymentId,
+    testSignature,
   };
 }

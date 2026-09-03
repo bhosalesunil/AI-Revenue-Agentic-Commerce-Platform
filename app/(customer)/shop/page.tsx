@@ -41,6 +41,7 @@ export default function ShopPage() {
 
   useEffect(() => {
     fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory, maxPrice]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {

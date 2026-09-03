@@ -5,7 +5,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const cartId = searchParams.get("cartId") || "default_cart";
-    const cart = store.getCartDetails(cartId);
+    const cart = await store.getCartDetails(cartId);
     return NextResponse.json({ success: true, cart });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

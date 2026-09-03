@@ -118,33 +118,32 @@ export default function CheckoutPage() {
         const rzp = new window.Razorpay(options);
         rzp.open();
       } else {
-        // Step 2b: Test Sandbox Simulator for instant zero-config testing
-        setTimeout(async () => {
-          const mockPaymentId = `pay_test_${Math.random().toString(36).substring(2, 9)}`;
-          const mockSignature = `sig_valid_${Date.now()}`;
+        // Step 2b: Test Mode HMAC Cryptographic Verification (No live API keys configured)
+        if (!createData.testSignature || !createData.testPaymentId) {
+          throw new Error("Razorpay sandbox credentials not available for cryptographic signing.");
+        }
 
-          const verifyRes = await fetch("/api/payments/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              orderId,
-              razorpay_order_id: razorpayOrderId,
-              razorpay_payment_id: mockPaymentId,
-              razorpay_signature: mockSignature,
-            }),
-          });
-          const verifyData = await verifyRes.json();
-          if (verifyData.success) {
-            await clearCart();
-            router.push(`/payment/success?orderId=${orderId}&paymentId=${mockPaymentId}`);
-          } else {
-            router.push(`/payment/failed?orderId=${orderId}&reason=VerificationFailed`);
-          }
-        }, 1200);
+        const verifyRes = await fetch("/api/payments/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId,
+            razorpay_order_id: razorpayOrderId,
+            razorpay_payment_id: createData.testPaymentId,
+            razorpay_signature: createData.testSignature,
+          }),
+        });
+        const verifyData = await verifyRes.json();
+        if (verifyData.success) {
+          await clearCart();
+          router.push(`/payment/success?orderId=${orderId}&paymentId=${createData.testPaymentId}`);
+        } else {
+          router.push(`/payment/failed?orderId=${orderId}&reason=${encodeURIComponent(verifyData.message || "Cryptographic verification rejected")}`);
+        }
       }
     } catch (err: any) {
       console.error("Checkout failure:", err);
-      setErrorMsg(err.message || "An unexpected error occurred.");
+      setErrorMsg(err.message || "An unexpected error occurred during checkout.");
       setIsProcessing(false);
     }
   };

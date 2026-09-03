@@ -72,12 +72,15 @@ export const Navbar: React.FC = () => {
               Merchant Dashboard
             </Link>
             <Link
-              href="/api/ai-catalog"
-              target="_blank"
-              className="px-3 py-1.5 rounded-lg text-sm font-mono text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 flex items-center gap-1"
+              href="/docs/ai-catalog"
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                isLinkActive("/docs/ai-catalog")
+                  ? "bg-slate-800 text-cyan-400"
+                  : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+              }`}
             >
-              <Cpu className="h-3 w-3 text-cyan-400" />
-              /api/ai-catalog
+              <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+              API Docs
             </Link>
           </nav>
         </div>

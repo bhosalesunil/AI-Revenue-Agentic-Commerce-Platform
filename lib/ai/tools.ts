@@ -101,9 +101,9 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
     },
     execute: async (args, context) => {
       const cartId = `cart_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const cart = store.getOrCreateCart(cartId);
+      const cart = await store.getOrCreateCart(cartId);
 
-      store.logAgentEvent({
+      await store.logAgentEvent({
         conversationId: context?.conversationId,
         userId: context?.userId,
         eventType: "CREATE_CART" as any,
@@ -133,10 +133,10 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
     execute: async (args, context) => {
       const cartId = args.cartId || "default_cart";
       const quantity = Math.max(1, Number(args.quantity) || 1);
-      const updatedCart = store.addToCart(cartId, args.productId, quantity);
+      const updatedCart = await store.addToCart(cartId, args.productId, quantity);
       const addedItem = updatedCart.items.find(i => i.productId === args.productId);
 
-      store.logAgentEvent({
+      await store.logAgentEvent({
         conversationId: context?.conversationId,
         userId: context?.userId,
         eventType: "ADD_TO_CART" as any,
@@ -165,9 +165,9 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
     },
     execute: async (args, context) => {
       const cartId = args.cartId || "default_cart";
-      const updatedCart = store.removeFromCart(cartId, args.productId);
+      const updatedCart = await store.removeFromCart(cartId, args.productId);
 
-      store.logAgentEvent({
+      await store.logAgentEvent({
         conversationId: context?.conversationId,
         userId: context?.userId,
         eventType: "REMOVE_FROM_CART" as any,
@@ -235,7 +235,7 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
       });
 
       // Save database order in PENDING status
-      const dbOrder = store.createOrder({
+      const dbOrder = await store.createOrder({
         userId: context?.userId,
         items: cart.items.map(i => ({ productId: i.productId, quantity: i.quantity, price: i.price })),
         totalAmount: verifiedTotal,
@@ -245,7 +245,7 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
         customerEmail: args.customerEmail,
       });
 
-      store.logAgentEvent({
+      await store.logAgentEvent({
         conversationId: context?.conversationId,
         userId: context?.userId,
         eventType: "CREATE_CHECKOUT" as any,
@@ -281,12 +281,12 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
       required: ["orderId"],
     },
     execute: async (args, context) => {
-      const order = store.getOrderById(args.orderId);
+      const order = await store.getOrderById(args.orderId);
       if (!order) {
         throw new Error(`Order ${args.orderId} not found.`);
       }
 
-      store.logAgentEvent({
+      await store.logAgentEvent({
         conversationId: context?.conversationId,
         userId: context?.userId,
         eventType: "PAYMENT_VERIFICATION" as any,

@@ -191,7 +191,7 @@ export default function HomePage() {
                     <Cpu className="h-4 w-4" /> Inspect AI Catalog JSON
                   </Button>
                 </Link>
-                <Link href="/docs">
+                <Link href="/docs/ai-catalog">
                   <Button variant="outline" size="sm" className="text-xs">
                     Read Agentic Protocol Docs
                   </Button>
@@ -201,7 +201,7 @@ export default function HomePage() {
 
             <div className="lg:col-span-5">
               <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs text-slate-300 overflow-x-auto shadow-xl">
-                <div className="text-slate-500 mb-2">// GET /api/ai-catalog response snippet</div>
+                <div className="text-slate-500 mb-2">{"// GET /api/ai-catalog response snippet"}</div>
                 <pre className="text-cyan-400">
 {`{
   "merchant": { "name": "Nexus Gear" },

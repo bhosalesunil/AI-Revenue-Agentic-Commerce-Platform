@@ -1,6 +1,67 @@
 import { AGENT_TOOLS } from "./tools";
 import { getUpsellForProduct } from "./recommendations";
-import { ChatMessage } from "@/types/ai";
+import { ChatMessage, ToolName } from "@/types/ai";
+import { SYSTEM_PROMPT } from "./systemPrompt";
+
+// Tool declarations formatted for LLM function calling
+const LLM_TOOL_DECLARATIONS = Object.values(AGENT_TOOLS).map((tool) => ({
+  name: tool.name,
+  description: tool.description,
+  parameters: tool.parameters,
+}));
+
+/**
+ * Execute LLM Function Calling via Google Gemini or OpenAI when API keys are present.
+ */
+async function callLLMWithTools(prompt: string, previousMessages: ChatMessage[] = []): Promise<{
+  text?: string;
+  toolCalls?: Array<{ name: string; args: any }>;
+} | null> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  if (geminiKey && !geminiKey.includes("your-gemini-api-key")) {
+    try {
+      const contents = [
+        ...previousMessages.slice(-4).map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
+        { role: "user", parts: [{ text: prompt }] },
+      ];
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents,
+            systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            tools: [{ functionDeclarations: LLM_TOOL_DECLARATIONS }],
+          }),
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        const candidate = data.candidates?.[0]?.content?.parts?.[0];
+        if (candidate?.functionCall) {
+          return {
+            toolCalls: [{ name: candidate.functionCall.name, args: candidate.functionCall.args || {} }],
+          };
+        }
+        if (candidate?.text) {
+          return { text: candidate.text };
+        }
+      }
+    } catch (err) {
+      console.warn("LLM API call failed, falling back to agentic tool orchestrator:", err);
+    }
+  }
+
+  return null;
+}
 
 export async function processAgentConversation(params: {
   message: string;
@@ -9,28 +70,50 @@ export async function processAgentConversation(params: {
   userId?: string;
   previousMessages?: ChatMessage[];
 }): Promise<ChatMessage> {
-  const { message, cartId = "default_cart", conversationId = "conv_active", userId = "user_guest" } = params;
+  const { message, cartId = "default_cart", conversationId = "conv_active", userId = "user_guest", previousMessages = [] } = params;
   const lowerMsg = message.toLowerCase().trim();
 
-  // Scenario 1: Add product to cart directly or from upsell
+  // 1. Attempt LLM tool dispatch if API key is active
+  const llmResult = await callLLMWithTools(message, previousMessages);
+  if (llmResult?.toolCalls && llmResult.toolCalls.length > 0) {
+    const call = llmResult.toolCalls[0];
+    const tool = AGENT_TOOLS[call.name];
+    if (tool) {
+      const toolOutput = await tool.execute(call.args, { conversationId, userId });
+      return {
+        id: `msg_${Date.now()}`,
+        role: "assistant",
+        content: `Executed tool **${call.name}** with parameters ${JSON.stringify(call.args)}. Output verified by server.`,
+        toolCalls: [{ name: call.name as ToolName, args: call.args || {} }],
+        productCards: Array.isArray(toolOutput) ? toolOutput.slice(0, 3) : undefined,
+        createdAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  // 2. Deterministic Agentic Commerce Tool Execution Engine
+
+  // Action: Add product to cart directly or from upsell
   if (lowerMsg.includes("add ") || lowerMsg.includes("buy ") || lowerMsg.startsWith("add_to_cart:")) {
     let targetProductId = "";
     if (lowerMsg.startsWith("add_to_cart:")) {
       targetProductId = lowerMsg.replace("add_to_cart:", "").trim();
     } else if (lowerMsg.includes("mouse")) {
       targetProductId = "prod_gaming_mouse";
-    } else if (lowerMsg.includes("headphone")) {
+    } else if (lowerMsg.includes("headphone") || lowerMsg.includes("hypersonic")) {
       targetProductId = "prod_gaming_headphones";
-    } else if (lowerMsg.includes("keyboard")) {
+    } else if (lowerMsg.includes("keyboard") || lowerMsg.includes("cyberkey")) {
       targetProductId = "prod_mech_keyboard";
-    } else if (lowerMsg.includes("earbud")) {
+    } else if (lowerMsg.includes("earbud") || lowerMsg.includes("aeropod") || lowerMsg.includes("anc")) {
       targetProductId = "prod_anc_earbuds";
-    } else if (lowerMsg.includes("watch")) {
+    } else if (lowerMsg.includes("watch") || lowerMsg.includes("pulsefit")) {
       targetProductId = "prod_smart_watch";
-    } else if (lowerMsg.includes("stand")) {
+    } else if (lowerMsg.includes("stand") || lowerMsg.includes("ergolift")) {
       targetProductId = "prod_laptop_stand";
-    } else if (lowerMsg.includes("power bank") || lowerMsg.includes("charger")) {
+    } else if (lowerMsg.includes("power bank") || lowerMsg.includes("magcharge") || lowerMsg.includes("charger")) {
       targetProductId = "prod_power_bank";
+    } else if (lowerMsg.includes("lamp") || lowerMsg.includes("light") || lowerMsg.includes("lumina")) {
+      targetProductId = "prod_desk_lamp";
     } else {
       targetProductId = "prod_gaming_headphones";
     }
@@ -67,7 +150,7 @@ export async function processAgentConversation(params: {
     };
   }
 
-  // Scenario 2: Checkout intent
+  // Action: Checkout intent
   if (lowerMsg.includes("checkout") || lowerMsg.includes("pay") || lowerMsg.includes("place order")) {
     const calcResult = await AGENT_TOOLS.calculateCart.execute(
       { cartId },
@@ -92,7 +175,7 @@ export async function processAgentConversation(params: {
     };
   }
 
-  // Scenario 3: View Cart
+  // Action: View Cart
   if (lowerMsg.includes("cart") || lowerMsg.includes("what is in my bag")) {
     const calcResult = await AGENT_TOOLS.calculateCart.execute(
       { cartId },
@@ -122,7 +205,7 @@ export async function processAgentConversation(params: {
     };
   }
 
-  // Scenario 4: Product discovery / search
+  // Action: Product discovery / search
   let query = "";
   let maxPrice: number | undefined = undefined;
 
@@ -144,7 +227,7 @@ export async function processAgentConversation(params: {
     query = "stand";
   } else if (lowerMsg.includes("lamp") || lowerMsg.includes("light")) {
     query = "lamp";
-  } else if (lowerMsg.includes("earbuds") || lowerMsg.includes("anc")) {
+  } else if (lowerMsg.includes("earbuds") || lowerMsg.includes("anc") || lowerMsg.includes("aeropod")) {
     query = "earbuds";
   } else {
     query = message.replace(/show me|i need|looking for|recommend|under \d+/gi, "").trim();
@@ -156,7 +239,6 @@ export async function processAgentConversation(params: {
   );
 
   if (products.length === 0) {
-    // Return all popular products
     const fallbackProducts = await AGENT_TOOLS.searchProducts.execute({}, { conversationId, userId });
     return {
       id: `msg_${Date.now()}`,

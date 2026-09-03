@@ -94,7 +94,7 @@ export const INITIAL_PRODUCTS: MockProduct[] = [
     currency: "INR",
     category: "Accessories",
     stock: 80,
-    imageUrl: "https://images.unsplash.com/photo-1609592424361-b4ef67a070f8?w=800&auto=format&fit=crop&q=80",
+    imageUrl: "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=800&auto=format&fit=crop&q=80",
     rating: 4.5,
     isActive: true,
   },

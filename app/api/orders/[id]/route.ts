@@ -4,7 +4,7 @@ import { store } from "@/lib/data/store";
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
-    const order = store.getOrderById(id);
+    const order = await store.getOrderById(id);
     if (!order) {
       return NextResponse.json({ success: false, message: "Order not found" }, { status: 404 });
     }

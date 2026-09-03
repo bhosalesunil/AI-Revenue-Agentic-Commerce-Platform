@@ -19,7 +19,7 @@ export class MoneySecurityGuard {
    * Validate and compute cart amount directly from verified server database.
    */
   static async validateAndCalculateCart(cartId: string) {
-    const cart = store.getCartDetails(cartId);
+    const cart = await store.getCartDetails(cartId);
     if (!cart.items || cart.items.length === 0) {
       throw new MoneyActionSecurityError("Cannot process checkout for an empty cart.");
     }
@@ -42,7 +42,7 @@ export class MoneySecurityGuard {
     }
 
     // Log the security validation event
-    store.logAgentEvent({
+    await store.logAgentEvent({
       conversationId: "sys_checkout",
       eventType: "CALCULATE_CART" as AgentEventType,
       toolName: "calculateCart",
