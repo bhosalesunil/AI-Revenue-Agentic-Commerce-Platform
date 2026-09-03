@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  MERCHANT
+  ADMIN
+}
+
+enum CartStatus {
+  ACTIVE
+  CHECKED_OUT
+  ABANDONED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum AgentEventType {
+  SEARCH_PRODUCTS
+  GET_PRODUCT_DETAILS
+  CREATE_CART
+  ADD_TO_CART
+  REMOVE_FROM_CART
+  CALCULATE_CART
+  CREATE_CHECKOUT
+  PAYMENT_VERIFICATION
+  RECOMMENDATION_GENERATED
+  UPSELL_PROMPT
+}
+
+enum RecommendationSource {
+  AI_UPSELL
+  SIMILAR_ITEM
+  CART_CROSS_SELL
+  CONVERSATION_DISCOVERY
+}
+
+model User {
+  id           String         @id @default(cuid())
+  name         String
+  email        String         @unique
+  passwordHash String?
+  role         Role           @default(CUSTOMER)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  merchants    Merchant[]
+  carts        Cart[]
+  orders       Order[]
+  conversations Conversation[]
+  agentEvents  AgentEvent[]
+  recommendations Recommendation[]
+}
+
+model Merchant {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  storeName   String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products    Product[]
+  orders      Order[]
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  merchantId  String
+  name        String
+  description String
+  price       Float
+  currency    String    @default("INR")
+  category    String
+  stock       Int       @default(0)
+  imageUrl    String?
+  rating      Float     @default(4.5)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  merchant        Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
+  recommendations Recommendation[]
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String?
+  status    CartStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items     CartItem[]
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int      @default(1)
+  price     Float
+  createdAt DateTime @default(now())
+
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, productId])
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  userId          String?
+  merchantId      String?
+  totalAmount     Float
+  currency        String      @default("INR")
+  status          OrderStatus @default(PENDING)
+  razorpayOrderId String?     @unique
+  isAiAssisted    Boolean     @default(false)
+  isAiUpsold      Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user            User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  merchant        Merchant?   @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  items           OrderItem[]
+  payment         Payment?
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  orderId           String        @unique
+  razorpayPaymentId String?       @unique
+  razorpayOrderId   String
+  amount            Float
+  currency          String        @default("INR")
+  status            PaymentStatus @default(PENDING)
+  method            String?
+  signature         String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id        String       @id @default(cuid())
+  userId    String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages    Message[]
+  agentEvents AgentEvent[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  metadata       String?
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model AgentEvent {
+  id             String          @id @default(cuid())
+  conversationId String?
+  userId         String?
+  eventType      AgentEventType
+  toolName       String
+  input          String?
+  output         String?
+  status         String          @default("SUCCESS")
+  amount         Float?
+  justification  String?
+  createdAt      DateTime        @default(now())
+
+  conversation   Conversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Recommendation {
+  id        String               @id @default(cuid())
+  userId    String?
+  productId String
+  source    RecommendationSource @default(AI_UPSELL)
+  reason    String
+  converted Boolean              @default(false)
+  createdAt DateTime             @default(now())
+
+  user      User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  product   Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
