@@ -10,25 +10,10 @@ export interface RazorpayConfigStatus {
 }
 
 export function getRazorpayConfig(): RazorpayConfigStatus {
-  const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
-  const key_secret = process.env.RAZORPAY_KEY_SECRET || "";
+  const key_id = (process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "").trim();
+  const key_secret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
 
-  const isKeyPlaceholder =
-    !key_id ||
-    key_id.includes("YourTestKeyIdHere") ||
-    key_id.includes("YOUR_KEY_ID") ||
-    key_id.includes("your_key_id") ||
-    key_id.trim() === "";
-
-  const isSecretPlaceholder =
-    !key_secret ||
-    key_secret.includes("YourRazorpayTestSecretKeyHere") ||
-    key_secret.includes("YOUR_RAZORPAY_SECRET") ||
-    key_secret.includes("your_test_secret") ||
-    key_secret === "sellpilot_test_secret_key" ||
-    key_secret.trim() === "";
-
-  const configured = !isKeyPlaceholder && !isSecretPlaceholder;
+  const configured = Boolean(key_id && key_secret);
   const mode: "test" | "live" | "not_configured" = !configured
     ? "not_configured"
     : key_id.startsWith("rzp_live")
@@ -100,7 +85,16 @@ export async function createRazorpayOrder(params: RazorpayCreateOrderParams) {
         keyId: config.key_id,
       };
     } catch (error: any) {
-      console.error("Razorpay API order creation failed:", error);
+      console.error("Razorpay API order creation failed:", error?.error?.description || error?.message || "Authentication/API error");
+      const isAuthErr =
+        error?.statusCode === 401 ||
+        (error?.error?.code === "BAD_REQUEST_ERROR" &&
+          error?.error?.description?.toLowerCase().includes("authentication failed"));
+      if (isAuthErr) {
+        throw new Error(
+          "Razorpay authentication failed. Verify that the Test Mode Key ID and Key Secret are a matching pair."
+        );
+      }
       throw new Error(
         `Razorpay order creation failed: ${error?.error?.description || error?.message || "Gateway rejection"}`
       );

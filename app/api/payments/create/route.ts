@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       keyId: paymentOrder.keyId,
     });
   } catch (error: any) {
-    console.error("Payment order creation failed:", error);
+    console.error("Payment order creation failed:", error.message || "Failed to create payment order.");
     return NextResponse.json(
       {
         error: {

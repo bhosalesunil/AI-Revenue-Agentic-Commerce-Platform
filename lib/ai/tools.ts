@@ -134,7 +134,7 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
       const cartId = args.cartId || "default_cart";
       const quantity = Math.max(1, Number(args.quantity) || 1);
       const updatedCart = await store.addToCart(cartId, args.productId, quantity);
-      const addedItem = updatedCart.items.find(i => i.productId === args.productId);
+      const addedItem = updatedCart.items.find((i: any) => i.productId === args.productId);
 
       await store.logAgentEvent({
         conversationId: context?.conversationId,
@@ -237,7 +237,7 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
       // Save database order in PENDING status
       const dbOrder = await store.createOrder({
         userId: context?.userId,
-        items: cart.items.map(i => ({ productId: i.productId, quantity: i.quantity, price: i.price })),
+        items: cart.items.map((i: any) => ({ productId: i.productId, quantity: i.quantity, price: i.price })),
         totalAmount: verifiedTotal,
         razorpayOrderId: razorpayOrder.id,
         isAiAssisted: true,
@@ -263,7 +263,7 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
         amount: razorpayOrder.amount, // in paise for Razorpay frontend SDK
         amountINR: verifiedTotal,
         currency: "INR",
-        keyId: process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_TXuv0oBmxQPaRb",
+        keyId: process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
         customerName: args.customerName || "Customer",
         customerEmail: args.customerEmail || "customer@example.com",
       };

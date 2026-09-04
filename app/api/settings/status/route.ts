@@ -16,6 +16,15 @@ export async function GET() {
 
   // 2. Real Razorpay Server Environment Configuration
   const rzpConfig = getRazorpayConfig();
+  const rawKeyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+  const rawKeySecret = process.env.RAZORPAY_KEY_SECRET || "";
+
+  const rzpDiagnostic = {
+    keyIdPresent: Boolean(rawKeyId),
+    secretPresent: Boolean(rawKeySecret),
+    isTestKey: rawKeyId.startsWith("rzp_test_"),
+    keyIdPrefix: rawKeyId.startsWith("rzp_test_") ? "rzp_test_" : rawKeyId.substring(0, 8),
+  };
 
   // 3. Real AI Configuration Detection
   const geminiKey = process.env.GEMINI_API_KEY || "";
@@ -67,6 +76,7 @@ export async function GET() {
         configured: rzpConfig.configured,
         mode: rzpConfig.mode,
         keyIdMasked: rzpConfig.keyIdMasked,
+        diagnostic: rzpDiagnostic,
       },
       database: {
         connected: dbConnected,

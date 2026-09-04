@@ -26,12 +26,12 @@ export async function processCreatePaymentOrder(params: {
     },
   });
 
-  const hasUpsellItem = cart.items.some(i => i.isUpsell);
+  const hasUpsellItem = cart.items.some((i: any) => i.isUpsell);
 
   // 3. Persist Order in database with PENDING status
   const order = await store.createOrder({
     userId,
-    items: cart.items.map(i => ({
+    items: cart.items.map((i: any) => ({
       productId: i.productId,
       quantity: i.quantity,
       price: i.price,
@@ -65,6 +65,6 @@ export async function processCreatePaymentOrder(params: {
     amountINR: verifiedTotal,
     currency: "INR",
     isSimulated: razorpayOrder.isSimulated,
-    keyId: razorpayOrder.keyId || process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_TXuv0oBmxQPaRb",
+    keyId: razorpayOrder.keyId || process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
   };
 }

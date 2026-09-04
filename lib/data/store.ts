@@ -158,67 +158,210 @@ class DataStore {
   }
 
   // ================= CART MANAGEMENT =================
-  async getOrCreateCart(cartId: string = "default_cart") {
-    if (!this.fallbackCarts.has(cartId)) {
-      this.fallbackCarts.set(cartId, { id: cartId, items: [] });
+  async getOrCreateCart(cartId: string = "default_cart"): Promise<any> {
+    try {
+      let dbCart = await prisma.cart.findUnique({
+        where: { id: cartId },
+        include: { items: { include: { product: true } } },
+      });
+      if (!dbCart) {
+        const initialItems = cartId === "default_cart" ? [
+          { id: `ci_def_kb_${Date.now()}`, productId: "prod_mech_keyboard", quantity: 1, price: 2499 },
+          { id: `ci_def_ms_${Date.now()}`, productId: "prod_gaming_mouse", quantity: 1, price: 799 },
+        ] : [];
+        dbCart = await prisma.cart.create({
+          data: {
+            id: cartId,
+            status: "ACTIVE",
+            items: { create: initialItems },
+          },
+          include: { items: { include: { product: true } } },
+        });
+      }
+      return this.formatCartFromDb(dbCart);
+    } catch {
+      if (!this.fallbackCarts.has(cartId)) {
+        const memItems = cartId === "default_cart" ? [
+          { productId: "prod_mech_keyboard", quantity: 1, price: 2499 },
+          { productId: "prod_gaming_mouse", quantity: 1, price: 799 },
+        ] : [];
+        this.fallbackCarts.set(cartId, { id: cartId, items: memItems });
+      }
+      return this.getCartDetails(cartId);
     }
-    return this.getCartDetails(cartId);
   }
 
   async addToCart(cartId: string, productId: string, quantity: number = 1, isUpsell: boolean = false) {
-    const cart = this.fallbackCarts.get(cartId) || { id: cartId, items: [] };
     const product = await this.getProductById(productId);
     if (!product) throw new Error(`Product ${productId} not found.`);
     if (product.stock < quantity) throw new Error(`Insufficient stock for ${product.name}. Available: ${product.stock}`);
 
-    const existing = cart.items.find(i => i.productId === productId);
-    if (existing) {
-      existing.quantity += quantity;
-      if (isUpsell) existing.isUpsell = true;
-    } else {
-      // SECURITY: Price always locked from database product, never from LLM
-      cart.items.push({ productId, quantity, price: product.price, isUpsell });
+    try {
+      // 1. Ensure Cart exists in DB
+      await prisma.cart.upsert({
+        where: { id: cartId },
+        update: { updatedAt: new Date() },
+        create: { id: cartId, status: "ACTIVE" },
+      });
+
+      // 2. Upsert CartItem in DB
+      const existingItem = await prisma.cartItem.findUnique({
+        where: { cartId_productId: { cartId, productId } },
+      });
+
+      if (existingItem) {
+        await prisma.cartItem.update({
+          where: { id: existingItem.id },
+          data: { quantity: existingItem.quantity + quantity, price: product.price },
+        });
+      } else {
+        await prisma.cartItem.create({
+          data: {
+            id: `ci_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            cartId,
+            productId,
+            quantity,
+            price: product.price,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("Prisma addToCart failed, using memory fallback:", err);
     }
-    this.fallbackCarts.set(cartId, cart);
+
+    // Always keep in-memory fallback in sync
+    const memCart = this.fallbackCarts.get(cartId) || { id: cartId, items: [] };
+    const existingMem = memCart.items.find(i => i.productId === productId);
+    if (existingMem) {
+      existingMem.quantity += quantity;
+      if (isUpsell) existingMem.isUpsell = true;
+    } else {
+      memCart.items.push({ productId, quantity, price: product.price, isUpsell });
+    }
+    this.fallbackCarts.set(cartId, memCart);
+
     return this.getCartDetails(cartId);
   }
 
   async removeFromCart(cartId: string, productId: string) {
-    const cart = this.fallbackCarts.get(cartId);
-    if (cart) {
-      cart.items = cart.items.filter(i => i.productId !== productId);
-      this.fallbackCarts.set(cartId, cart);
+    try {
+      await prisma.cartItem.deleteMany({
+        where: { cartId, productId },
+      });
+    } catch {}
+
+    const memCart = this.fallbackCarts.get(cartId);
+    if (memCart) {
+      memCart.items = memCart.items.filter(i => i.productId !== productId);
+      this.fallbackCarts.set(cartId, memCart);
     }
     return this.getCartDetails(cartId);
   }
 
-  clearCart(cartId: string) {
+  async clearCart(cartId: string) {
+    try {
+      await prisma.cartItem.deleteMany({
+        where: { cartId },
+      });
+    } catch {}
+
     this.fallbackCarts.set(cartId, { id: cartId, items: [] });
+    return this.getCartDetails(cartId);
   }
 
-  async getCartDetails(cartId: string) {
-    const cart = this.fallbackCarts.get(cartId) || { id: cartId, items: [] };
-    const items = await Promise.all(cart.items.map(async item => {
-      const prod = await this.getProductById(item.productId);
-      return {
-        id: `ci_${item.productId}`,
-        cartId,
-        productId: item.productId,
-        quantity: item.quantity,
-        price: prod ? prod.price : item.price, // Always server verified
-        isUpsell: item.isUpsell || false,
-        product: prod || undefined,
-      };
-    }));
+  async getCartDetails(cartId: string): Promise<any> {
+    try {
+      let dbCart = await prisma.cart.findUnique({
+        where: { id: cartId },
+        include: {
+          items: {
+            include: {
+              product: true,
+            },
+          },
+        },
+      });
+
+      if (!dbCart) {
+        return await this.getOrCreateCart(cartId);
+      }
+
+      return this.formatCartFromDb(dbCart);
+    } catch {}
+
+    // Fallback to in-memory store
+    if (!this.fallbackCarts.has(cartId)) {
+      const memItems = cartId === "default_cart" ? [
+        { productId: "prod_mech_keyboard", quantity: 1, price: 2499 },
+        { productId: "prod_gaming_mouse", quantity: 1, price: 799 },
+      ] : [];
+      this.fallbackCarts.set(cartId, { id: cartId, items: memItems });
+    }
+    const memCart = this.fallbackCarts.get(cartId)!;
+    const items = await Promise.all(
+      memCart.items.map(async item => {
+        const prod = await this.getProductById(item.productId);
+        return {
+          id: `ci_${item.productId}`,
+          cartId,
+          productId: item.productId,
+          quantity: item.quantity,
+          price: prod ? prod.price : item.price,
+          isUpsell: item.isUpsell || false,
+          product: prod || undefined,
+        };
+      })
+    );
 
     const subtotal = items.reduce((acc, curr) => acc + curr.price * curr.quantity, 0);
-    const tax = 0; // Transparent pricing
+    const tax = 0;
     const discount = 0;
     const total = subtotal + tax - discount;
 
     return {
       id: cartId,
       status: "ACTIVE" as const,
+      items,
+      subtotal,
+      tax,
+      discount,
+      total,
+    };
+  }
+
+  private formatCartFromDb(dbCart: any) {
+    const items = dbCart.items.map((item: any) => ({
+      id: item.id,
+      cartId: item.cartId,
+      productId: item.productId,
+      quantity: item.quantity,
+      price: item.product ? item.product.price : item.price,
+      isUpsell: false,
+      product: item.product
+        ? {
+            id: item.product.id,
+            merchantId: item.product.merchantId,
+            name: item.product.name,
+            description: item.product.description,
+            price: item.product.price,
+            currency: item.product.currency,
+            category: item.product.category,
+            stock: item.product.stock,
+            imageUrl: item.product.imageUrl || "",
+            rating: item.product.rating,
+            isActive: item.product.isActive,
+          }
+        : undefined,
+    }));
+
+    const subtotal = items.reduce((acc: number, curr: any) => acc + curr.price * curr.quantity, 0);
+    const tax = 0;
+    const discount = 0;
+    const total = subtotal + tax - discount;
+
+    return {
+      id: dbCart.id,
+      status: dbCart.status || "ACTIVE",
       items,
       subtotal,
       tax,
