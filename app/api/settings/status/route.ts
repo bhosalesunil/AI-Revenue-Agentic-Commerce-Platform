@@ -34,7 +34,8 @@ export async function GET() {
   const hasValidGemini = Boolean(
     geminiKey &&
       !geminiKey.includes("your-gemini-api-key") &&
-      geminiKey.trim().length > 10
+      !geminiKey.includes("YOUR_GEMINI_API_KEY") &&
+      geminiKey.trim().length > 5
   );
   const hasValidOpenAI = Boolean(
     openaiKey &&

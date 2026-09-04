@@ -85,19 +85,66 @@ export async function createRazorpayOrder(params: RazorpayCreateOrderParams) {
         keyId: config.key_id,
       };
     } catch (error: any) {
-      console.error("Razorpay API order creation failed:", error?.error?.description || error?.message || "Authentication/API error");
+      // Safe extraction of error attributes according to Razorpay SDK structure
+      const statusCode =
+        error?.statusCode ??
+        error?.status ??
+        (error?.error && typeof error.error === "object" ? error.error.statusCode ?? error.error.status : undefined);
+
+      const errorCode =
+        (error?.error && typeof error.error === "object" ? error.error.code : undefined) ??
+        error?.code;
+
+      const errorDescription =
+        (error?.error && typeof error.error === "object" ? error.error.description : undefined) ??
+        error?.description;
+
+      const message = error?.message || "";
+
+      // Safe server-side diagnostic logging (never log credentials or auth headers)
+      console.error("Razorpay order creation diagnostic:", {
+        errorName: error?.name || (typeof error === "object" && error ? error.constructor?.name : typeof error),
+        statusCode: statusCode ?? null,
+        errorCode: errorCode ?? null,
+        errorDescription: errorDescription ?? null,
+        message: message || null,
+      });
+
       const isAuthErr =
-        error?.statusCode === 401 ||
-        (error?.error?.code === "BAD_REQUEST_ERROR" &&
-          error?.error?.description?.toLowerCase().includes("authentication failed"));
+        statusCode === 401 ||
+        (errorCode === "BAD_REQUEST_ERROR" &&
+          typeof errorDescription === "string" &&
+          errorDescription.toLowerCase().includes("authentication failed"));
+
       if (isAuthErr) {
         throw new Error(
           "Razorpay authentication failed. Verify that the Test Mode Key ID and Key Secret are a matching pair."
         );
       }
-      throw new Error(
-        `Razorpay order creation failed: ${error?.error?.description || error?.message || "Gateway rejection"}`
-      );
+
+      // Handle Razorpay SDK internal TypeError when HTTP response is absent (network failure in axios)
+      const isSdkStatusTypeError =
+        message.includes("Cannot read properties of undefined (reading 'status')") ||
+        message.includes("reading 'status'");
+
+      let detailParts: string[] = [];
+      if (statusCode) detailParts.push(`Status ${statusCode}`);
+      if (errorCode) detailParts.push(`Code: ${errorCode}`);
+      if (errorDescription) detailParts.push(errorDescription);
+
+      let finalDetail = detailParts.join(" - ");
+
+      if (!finalDetail) {
+        if (isSdkStatusTypeError) {
+          finalDetail = "Network connection failed while reaching Razorpay API servers.";
+        } else if (message) {
+          finalDetail = message;
+        } else {
+          finalDetail = "Gateway rejection or invalid response.";
+        }
+      }
+
+      throw new Error(`Razorpay order creation failed: ${finalDetail}`);
     }
   }
 
