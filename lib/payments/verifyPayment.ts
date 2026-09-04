@@ -57,8 +57,18 @@ export async function processVerifyPayment(params: PaymentVerificationRequest): 
 
   // 4. Create Payment Record in PostgreSQL
   try {
-    await prisma.payment.create({
-      data: {
+    await prisma.payment.upsert({
+      where: { orderId: existingOrder.id },
+      update: {
+        razorpayPaymentId: razorpay_payment_id,
+        razorpayOrderId: razorpay_order_id,
+        amount: existingOrder.totalAmount,
+        currency: existingOrder.currency,
+        status: "CAPTURED",
+        method: "razorpay",
+        signature: razorpay_signature,
+      },
+      create: {
         id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         orderId: existingOrder.id,
         razorpayPaymentId: razorpay_payment_id,
@@ -68,9 +78,11 @@ export async function processVerifyPayment(params: PaymentVerificationRequest): 
         status: "CAPTURED",
         method: "razorpay",
         signature: razorpay_signature,
-      }
+      },
     });
-  } catch {}
+  } catch (err) {
+    console.warn("Could not upsert payment in Prisma:", err);
+  }
 
   // 5. Log verified audit event to PostgreSQL
   await store.logAgentEvent({

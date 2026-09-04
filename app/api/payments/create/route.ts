@@ -5,8 +5,22 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { cartId = "default_cart", customerName, customerEmail, userId } = body;
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Malformed JSON request body.",
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    const { cartId = "default_cart", customerName, customerEmail, userId } = body || {};
 
     const paymentOrder = await processCreatePaymentOrder({
       cartId,
@@ -17,13 +31,22 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      ...paymentOrder,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_YourTestKeyIdHere",
+      orderId: paymentOrder.orderId,
+      razorpayOrderId: paymentOrder.razorpayOrderId,
+      amount: paymentOrder.amount,
+      amountINR: paymentOrder.amountINR,
+      currency: paymentOrder.currency,
+      keyId: paymentOrder.keyId,
     });
   } catch (error: any) {
     console.error("Payment order creation failed:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to create payment order" },
+      {
+        error: {
+          code: "PAYMENT_CREATION_FAILED",
+          message: error.message || "Failed to create payment order.",
+        },
+      },
       { status: 400 }
     );
   }

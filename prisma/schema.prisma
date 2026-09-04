@@ -82,6 +82,7 @@ model Merchant {
   userId      String    @unique
   storeName   String
   description String?
+  currency    String    @default("INR")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -153,6 +154,11 @@ model Order {
   merchant        Merchant?   @relation(fields: [merchantId], references: [id], onDelete: SetNull)
   items           OrderItem[]
   payment         Payment?
+
+  @@index([userId])
+  @@index([merchantId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model OrderItem {
@@ -164,6 +170,9 @@ model OrderItem {
 
   order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
 }
 
 model Payment {
@@ -180,6 +189,9 @@ model Payment {
   updatedAt         DateTime      @updatedAt
 
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([razorpayOrderId])
+  @@index([status])
 }
 
 model Conversation {

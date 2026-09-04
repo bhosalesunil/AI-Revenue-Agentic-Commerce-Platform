@@ -3,11 +3,25 @@ import { getUpsellForProduct } from "./recommendations";
 import { ChatMessage, ToolName } from "@/types/ai";
 import { SYSTEM_PROMPT } from "./systemPrompt";
 
-// Tool declarations formatted for LLM function calling
-const LLM_TOOL_DECLARATIONS = Object.values(AGENT_TOOLS).map((tool) => ({
+function formatSchemaTypesForGemini(obj: any): any {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(formatSchemaTypesForGemini);
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "type" && typeof value === "string") {
+      result[key] = value.toUpperCase();
+    } else {
+      result[key] = formatSchemaTypesForGemini(value);
+    }
+  }
+  return result;
+}
+
+// Tool declarations formatted for Gemini LLM function calling
+const GEMINI_TOOL_DECLARATIONS = Object.values(AGENT_TOOLS).map((tool) => ({
   name: tool.name,
   description: tool.description,
-  parameters: tool.parameters,
+  parameters: formatSchemaTypesForGemini(tool.parameters),
 }));
 
 /**
@@ -18,9 +32,8 @@ async function callLLMWithTools(prompt: string, previousMessages: ChatMessage[] 
   toolCalls?: Array<{ name: string; args: any }>;
 } | null> {
   const geminiKey = process.env.GEMINI_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
 
-  if (geminiKey && !geminiKey.includes("your-gemini-api-key")) {
+  if (geminiKey && !geminiKey.includes("your-gemini-api-key") && geminiKey.trim().length > 10) {
     try {
       const contents = [
         ...previousMessages.slice(-4).map((m) => ({
@@ -38,7 +51,7 @@ async function callLLMWithTools(prompt: string, previousMessages: ChatMessage[] 
           body: JSON.stringify({
             contents,
             systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            tools: [{ functionDeclarations: LLM_TOOL_DECLARATIONS }],
+            tools: [{ functionDeclarations: GEMINI_TOOL_DECLARATIONS }],
           }),
         }
       );
@@ -80,15 +93,45 @@ export async function processAgentConversation(params: {
     const tool = AGENT_TOOLS[call.name];
     if (tool) {
       const toolOutput = await tool.execute(call.args, { conversationId, userId });
+
+      let responseText = `Executed tool **${call.name}** with parameters ${JSON.stringify(call.args)}. Output verified by server.`;
+      let productCards = undefined;
+      let cartSummary = undefined;
+
+      if (call.name === "searchProducts" && Array.isArray(toolOutput)) {
+        responseText = `I found ${toolOutput.length} recommendation${toolOutput.length > 1 ? "s" : ""} matching your request:`;
+        productCards = toolOutput.slice(0, 3);
+      } else if (call.name === "addToCart" && toolOutput?.total) {
+        const addedProduct = toolOutput.items?.find((i: any) => i.productId === call.args.productId)?.product;
+        responseText = `Added **${addedProduct?.name || "item"}** to your cart for ₹${(addedProduct?.price || toolOutput.subtotal).toLocaleString("en-IN")}. Total: ₹${toolOutput.total.toLocaleString("en-IN")}.`;
+        cartSummary = { total: toolOutput.total, itemCount: toolOutput.items?.length || 1 };
+      } else if (call.name === "calculateCart" && toolOutput?.total) {
+        responseText = `Verified cart total: ₹${toolOutput.total.toLocaleString("en-IN")} (${toolOutput.items?.length || 0} items). Ready for checkout.`;
+        cartSummary = { total: toolOutput.total, itemCount: toolOutput.items?.length || 0, readyForCheckout: true };
+      } else if (call.name === "createCheckout" && toolOutput?.orderId) {
+        responseText = `Created Razorpay checkout for Order #${toolOutput.orderId}. Verified amount: ₹${toolOutput.amountINR}.`;
+        cartSummary = { total: toolOutput.amountINR, itemCount: 1, readyForCheckout: true };
+      }
+
       return {
         id: `msg_${Date.now()}`,
         role: "assistant",
-        content: `Executed tool **${call.name}** with parameters ${JSON.stringify(call.args)}. Output verified by server.`,
+        content: responseText,
         toolCalls: [{ name: call.name as ToolName, args: call.args || {} }],
-        productCards: Array.isArray(toolOutput) ? toolOutput.slice(0, 3) : undefined,
+        productCards,
+        cartSummary,
         createdAt: new Date().toISOString(),
       };
     }
+  }
+
+  if (llmResult?.text) {
+    return {
+      id: `msg_${Date.now()}`,
+      role: "assistant",
+      content: llmResult.text,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   // 2. Deterministic Agentic Commerce Tool Execution Engine

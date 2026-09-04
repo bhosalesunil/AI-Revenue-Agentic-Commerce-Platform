@@ -41,7 +41,7 @@ export async function GET() {
         },
         payment: {
           gateway: "Razorpay",
-          mode: isRazorpayConfigured ? "live-test" : "sandbox-simulation",
+          mode: isRazorpayConfigured() ? "test-mode" : "not-configured",
           status: "ready",
         },
         agentic_commerce: {

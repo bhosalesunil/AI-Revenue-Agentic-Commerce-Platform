@@ -1,5 +1,5 @@
 import { store } from "../data/store";
-import { createRazorpayOrder, generateTestSignature } from "../razorpay";
+import { createRazorpayOrder } from "../razorpay";
 import { MoneySecurityGuard } from "../ai/security";
 import { AgentEventType } from "@prisma/client";
 
@@ -58,13 +58,6 @@ export async function processCreatePaymentOrder(params: {
     justification: `Order ${order.id} registered for checkout. Amount: ₹${verifiedTotal}`,
   });
 
-  let testSignature: string | undefined = undefined;
-  let testPaymentId: string | undefined = undefined;
-  if (razorpayOrder.isSimulated) {
-    testPaymentId = `pay_test_${order.id.replace(/-/g, "").toLowerCase()}`;
-    testSignature = generateTestSignature(razorpayOrder.id, testPaymentId);
-  }
-
   return {
     orderId: order.id,
     razorpayOrderId: razorpayOrder.id,
@@ -72,7 +65,6 @@ export async function processCreatePaymentOrder(params: {
     amountINR: verifiedTotal,
     currency: "INR",
     isSimulated: razorpayOrder.isSimulated,
-    testPaymentId,
-    testSignature,
+    keyId: razorpayOrder.keyId || process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_TXuv0oBmxQPaRb",
   };
 }

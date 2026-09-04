@@ -62,13 +62,31 @@ export default function CheckoutPage() {
 
       const createData = await createRes.json();
       if (!createData.success) {
-        throw new Error(createData.error || "Failed to initialize payment order.");
+        throw new Error(
+          createData.error?.message ||
+          (typeof createData.error === "string" ? createData.error : null) ||
+          "Failed to initialize payment order."
+        );
       }
 
-      const { orderId, razorpayOrderId, amount, currency, isSimulated, keyId } = createData;
+      const { orderId, razorpayOrderId, amount, currency, keyId } = createData;
 
-      // Step 2: Open Razorpay modal if SDK loaded and not pure simulated mode
-      if (typeof window !== "undefined" && window.Razorpay && !isSimulated) {
+      // Ensure Razorpay SDK script is loaded
+      let razorpayLoaded = Boolean(typeof window !== "undefined" && window.Razorpay);
+      if (!razorpayLoaded) {
+        await new Promise<void>((resolve) => {
+          const script = document.createElement("script");
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+          script.onload = () => {
+            razorpayLoaded = true;
+            resolve();
+          };
+          script.onerror = () => resolve();
+          document.body.appendChild(script);
+        });
+      }
+
+      if (typeof window !== "undefined" && window.Razorpay) {
         const options = {
           key: keyId,
           amount: amount,
@@ -102,7 +120,9 @@ export default function CheckoutPage() {
                 await clearCart();
                 router.push(`/payment/success?orderId=${orderId}&paymentId=${response.razorpay_payment_id}`);
               } else {
-                router.push(`/payment/failed?orderId=${orderId}&reason=${encodeURIComponent(verifyData.message)}`);
+                const failReason =
+                  verifyData.error?.message || verifyData.message || "Cryptographic verification rejected.";
+                router.push(`/payment/failed?orderId=${orderId}&reason=${encodeURIComponent(failReason)}`);
               }
             } catch (err: any) {
               router.push(`/payment/failed?orderId=${orderId}&reason=${encodeURIComponent(err.message)}`);
@@ -118,28 +138,7 @@ export default function CheckoutPage() {
         const rzp = new window.Razorpay(options);
         rzp.open();
       } else {
-        // Step 2b: Test Mode HMAC Cryptographic Verification (No live API keys configured)
-        if (!createData.testSignature || !createData.testPaymentId) {
-          throw new Error("Razorpay sandbox credentials not available for cryptographic signing.");
-        }
-
-        const verifyRes = await fetch("/api/payments/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            razorpay_order_id: razorpayOrderId,
-            razorpay_payment_id: createData.testPaymentId,
-            razorpay_signature: createData.testSignature,
-          }),
-        });
-        const verifyData = await verifyRes.json();
-        if (verifyData.success) {
-          await clearCart();
-          router.push(`/payment/success?orderId=${orderId}&paymentId=${createData.testPaymentId}`);
-        } else {
-          router.push(`/payment/failed?orderId=${orderId}&reason=${encodeURIComponent(verifyData.message || "Cryptographic verification rejected")}`);
-        }
+        throw new Error("Razorpay Checkout SDK failed to load. Please check your internet connection.");
       }
     } catch (err: any) {
       console.error("Checkout failure:", err);

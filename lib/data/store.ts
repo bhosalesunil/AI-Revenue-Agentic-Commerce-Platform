@@ -2,6 +2,7 @@ import prisma from "../prisma";
 import { INITIAL_PRODUCTS, INITIAL_MERCHANT, MockProduct } from "./initialData";
 import { AgentEventLog } from "@/types/ai";
 import { Order, OrderStatus } from "@/types/order";
+import { StoreSettings } from "@/types/settings";
 import { AgentEventType } from "@prisma/client";
 
 // Database-First Data Store with resilient fallback
@@ -10,6 +11,15 @@ class DataStore {
   private fallbackCarts: Map<string, { id: string; userId?: string; items: { productId: string; quantity: number; price: number; isUpsell?: boolean }[] }> = new Map();
   private fallbackOrders: Order[] = [];
   private fallbackAgentEvents: AgentEventLog[] = [];
+  private fallbackMerchant: StoreSettings = {
+    id: INITIAL_MERCHANT.id,
+    merchantId: INITIAL_MERCHANT.id,
+    brandName: INITIAL_MERCHANT.storeName,
+    currency: "INR",
+    description: INITIAL_MERCHANT.description,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 
   // ================= PRODUCTS =================
   async getProducts(params?: { category?: string; query?: string; maxPrice?: number }): Promise<MockProduct[]> {
@@ -744,6 +754,98 @@ class DataStore {
         { date: "Sun", total: 29500, aiRevenue: 13200 },
       ],
     };
+  }
+
+  // ================= STORE PROFILE & SETTINGS =================
+  async getStoreSettings(): Promise<StoreSettings> {
+    try {
+      const merchant = await prisma.merchant.findFirst({
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (merchant) {
+        return {
+          id: merchant.id,
+          merchantId: merchant.id,
+          brandName: merchant.storeName,
+          currency: (merchant as any).currency || "INR",
+          description: merchant.description || undefined,
+          createdAt: merchant.createdAt.toISOString(),
+          updatedAt: merchant.updatedAt.toISOString(),
+        };
+      }
+    } catch {
+      // Prisma fallback
+    }
+
+    return { ...this.fallbackMerchant };
+  }
+
+  async updateStoreSettings(params: { brandName: string; currency: string }): Promise<StoreSettings> {
+    const brandName = params.brandName.trim();
+    const currency = params.currency.trim().toUpperCase();
+
+    try {
+      let merchant = await prisma.merchant.findFirst({
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (!merchant) {
+        let user = await prisma.user.findFirst({ where: { role: "MERCHANT" } });
+        if (!user) {
+          user = await prisma.user.create({
+            data: {
+              id: "user_merchant_01",
+              name: "Nexus Merchant Admin",
+              email: "merchant@nexusgear.in",
+              role: "MERCHANT",
+            },
+          });
+        }
+        merchant = await prisma.merchant.create({
+          data: {
+            id: "merch_nexus_01",
+            userId: user.id,
+            storeName: brandName,
+            currency: currency,
+          },
+        });
+      }
+
+      if (merchant) {
+        const updated = await prisma.merchant.update({
+          where: { id: merchant.id },
+          data: {
+            storeName: brandName,
+            currency: currency,
+          },
+        });
+
+        const result: StoreSettings = {
+          id: updated.id,
+          merchantId: updated.id,
+          brandName: updated.storeName,
+          currency: (updated as any).currency || currency,
+          description: updated.description || undefined,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        };
+
+        this.fallbackMerchant = { ...result };
+        return result;
+      }
+    } catch (err) {
+      console.warn("Could not update merchant in database, falling back to memory:", err);
+    }
+
+    this.fallbackMerchant = {
+      ...this.fallbackMerchant,
+      brandName,
+      currency,
+      updatedAt: new Date().toISOString(),
+    };
+
+    return { ...this.fallbackMerchant };
   }
 }
 

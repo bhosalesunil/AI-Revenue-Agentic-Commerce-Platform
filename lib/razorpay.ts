@@ -1,24 +1,72 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 
-const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
-const key_secret = process.env.RAZORPAY_KEY_SECRET || "sellpilot_test_secret_key";
+export interface RazorpayConfigStatus {
+  key_id: string;
+  key_secret: string;
+  configured: boolean;
+  mode: "test" | "live" | "not_configured";
+  keyIdMasked: string | null;
+}
 
-export const isRazorpayConfigured =
-  Boolean(key_id) &&
-  Boolean(process.env.RAZORPAY_KEY_SECRET) &&
-  !key_id.includes("YourTestKeyIdHere");
+export function getRazorpayConfig(): RazorpayConfigStatus {
+  const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+  const key_secret = process.env.RAZORPAY_KEY_SECRET || "";
 
-let razorpayClient: Razorpay | null = null;
+  const isKeyPlaceholder =
+    !key_id ||
+    key_id.includes("YourTestKeyIdHere") ||
+    key_id.includes("YOUR_KEY_ID") ||
+    key_id.includes("your_key_id") ||
+    key_id.trim() === "";
 
-if (isRazorpayConfigured) {
+  const isSecretPlaceholder =
+    !key_secret ||
+    key_secret.includes("YourRazorpayTestSecretKeyHere") ||
+    key_secret.includes("YOUR_RAZORPAY_SECRET") ||
+    key_secret.includes("your_test_secret") ||
+    key_secret === "sellpilot_test_secret_key" ||
+    key_secret.trim() === "";
+
+  const configured = !isKeyPlaceholder && !isSecretPlaceholder;
+  const mode: "test" | "live" | "not_configured" = !configured
+    ? "not_configured"
+    : key_id.startsWith("rzp_live")
+    ? "live"
+    : "test";
+
+  const prefixLen = key_id.startsWith("rzp_test_") || key_id.startsWith("rzp_live_") ? 9 : 8;
+  const keyIdMasked =
+    configured && key_id.length >= prefixLen
+      ? `${key_id.substring(0, prefixLen)}••••••••`
+      : null;
+
+  return {
+    key_id,
+    key_secret,
+    configured,
+    mode,
+    keyIdMasked,
+  };
+}
+
+export function isRazorpayConfigured(): boolean {
+  return getRazorpayConfig().configured;
+}
+
+export function getRazorpayClient(): Razorpay | null {
+  const config = getRazorpayConfig();
+  if (!config.configured) {
+    return null;
+  }
   try {
-    razorpayClient = new Razorpay({
-      key_id,
-      key_secret: process.env.RAZORPAY_KEY_SECRET!,
+    return new Razorpay({
+      key_id: config.key_id,
+      key_secret: config.key_secret,
     });
   } catch (err) {
-    console.warn("Could not initialize live Razorpay client:", err);
+    console.warn("Could not initialize Razorpay client:", err);
+    return null;
   }
 }
 
@@ -32,10 +80,12 @@ export interface RazorpayCreateOrderParams {
 export async function createRazorpayOrder(params: RazorpayCreateOrderParams) {
   const amountInPaise = Math.round(params.amount * 100);
   const currency = params.currency || "INR";
+  const config = getRazorpayConfig();
+  const client = getRazorpayClient();
 
-  if (razorpayClient) {
+  if (client) {
     try {
-      const order = await razorpayClient.orders.create({
+      const order = await client.orders.create({
         amount: amountInPaise,
         currency,
         receipt: params.receipt,
@@ -47,31 +97,24 @@ export async function createRazorpayOrder(params: RazorpayCreateOrderParams) {
         currency: order.currency,
         receipt: order.receipt,
         isSimulated: false,
+        keyId: config.key_id,
       };
-    } catch (error) {
-      console.warn("Live Razorpay order creation failed, falling back to sandbox test order:", error);
+    } catch (error: any) {
+      console.error("Razorpay API order creation failed:", error);
+      throw new Error(
+        `Razorpay order creation failed: ${error?.error?.description || error?.message || "Gateway rejection"}`
+      );
     }
   }
 
-  // Deterministic Sandbox Test Mode Order
-  const simulatedId = `order_test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  return {
-    id: simulatedId,
-    amount: amountInPaise,
-    currency,
-    receipt: params.receipt,
-    isSimulated: true,
-  };
-}
+  // If Razorpay credentials are not configured or invalid
+  if (!config.configured) {
+    throw new Error(
+      "Razorpay credentials are not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env.local."
+    );
+  }
 
-/**
- * Generate cryptographic HMAC-SHA256 signature for test/sandbox verification
- */
-export function generateTestSignature(orderId: string, paymentId: string): string {
-  return crypto
-    .createHmac("sha256", key_secret)
-    .update(`${orderId}|${paymentId}`)
-    .digest("hex");
+  throw new Error("Unable to initialize Razorpay payment client.");
 }
 
 /**
@@ -84,6 +127,10 @@ export function verifyRazorpaySignature(params: {
   razorpayPaymentId: string;
   razorpaySignature: string;
 }): boolean {
+  const { key_secret, configured } = getRazorpayConfig();
+  if (!configured || !key_secret) {
+    return false;
+  }
   if (!params.razorpayOrderId || !params.razorpayPaymentId || !params.razorpaySignature) {
     return false;
   }
@@ -93,12 +140,13 @@ export function verifyRazorpaySignature(params: {
     .update(`${params.razorpayOrderId}|${params.razorpayPaymentId}`)
     .digest("hex");
 
-  // Constant-time comparison to prevent timing attacks
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(generatedSignature, "utf-8"),
-      Buffer.from(params.razorpaySignature, "utf-8")
-    );
+    const expectedBuf = Buffer.from(generatedSignature, "utf-8");
+    const providedBuf = Buffer.from(params.razorpaySignature, "utf-8");
+    if (expectedBuf.length !== providedBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(expectedBuf, providedBuf);
   } catch {
     return false;
   }
@@ -111,10 +159,12 @@ export function verifyWebhookSignature(body: string, signature: string, webhookS
     .update(body)
     .digest("hex");
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, "utf-8"),
-      Buffer.from(signature, "utf-8")
-    );
+    const expectedBuf = Buffer.from(expectedSignature, "utf-8");
+    const providedBuf = Buffer.from(signature, "utf-8");
+    if (expectedBuf.length !== providedBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(expectedBuf, providedBuf);
   } catch {
     return false;
   }

@@ -263,7 +263,7 @@ export const AGENT_TOOLS: Record<string, ToolDefinition> = {
         amount: razorpayOrder.amount, // in paise for Razorpay frontend SDK
         amountINR: verifiedTotal,
         currency: "INR",
-        keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_YourTestKeyIdHere",
+        keyId: process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_TXuv0oBmxQPaRb",
         customerName: args.customerName || "Customer",
         customerEmail: args.customerEmail || "customer@example.com",
       };
